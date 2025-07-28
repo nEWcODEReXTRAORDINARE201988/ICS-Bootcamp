@@ -1,0 +1,65 @@
+services:
+  malcolm-zeek:
+    image: ghcr.io/idaholab/malcolm/zeek:25.06.0
+    container_name: malcolm-zeek
+    command: zeek -i eth1 -i eth2 -i eth3
+    cap_add:
+      - NET_ADMIN
+    networks:
+      l3_network:
+        ipv4_address: 192.168.3.93
+      l2_network:
+        ipv4_address: 192.168.2.93
+    volumes:
+      - ./malcolm/zeek/logs:/opt/zeek/logs
+    restart: unless-stopped
+
+  malcolm-logstash:
+    image: docker.elastic.co/logstash/logstash:8.13.4
+    container_name: malcolm-logstash
+    volumes:
+      - ./malcolm/logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+      - ./malcolm/logstash/pipeline/logstash.conf:/usr/share/logstash/pipeline/logstash.conf:ro
+    ports:
+      - "5044:5044"
+    networks:
+      - l3_network
+    restart: unless-stopped
+
+  malcolm-filebeat:
+    image: docker.elastic.co/beats/filebeat:8.13.4
+    container_name: malcolm-filebeat
+    user: root
+    volumes:
+      - ./malcolm/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - ./malcolm/zeek/logs:/zeek/logs:ro
+    depends_on:
+      - malcolm-logstash
+    networks:
+      - l3_network
+    restart: unless-stopped
+
+  malcolm-elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    container_name: malcolm-elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+    networks:
+      - l3_network
+    ports:
+      - "9200:9200"
+    restart: unless-stopped
+
+  malcolm-kibana:
+    image: docker.elastic.co/kibana/kibana:8.13.4
+    container_name: malcolm-kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://malcolm-elasticsearch:9200
+    ports:
+      - "5601:5601"
+    networks:
+      - l3_network
+    depends_on:
+      - malcolm-elasticsearch
+    restart: unless-stopped
